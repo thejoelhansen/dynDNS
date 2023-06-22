@@ -1,0 +1,14 @@
+# Install Directory
+installPath=/home/joel/projects/dynDNS
+
+# Desired external DNS for server
+DNS=dump.poot.me
+
+# Use Google Cloud or AWS
+cloudProvider=gc
+
+# Google Cloud
+gcProject=steady-mason-118916
+gcZone=poot-me
+
+# AWS (todo)
