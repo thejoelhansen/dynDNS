@@ -1,4 +1,4 @@
-1. Rename dynDNS.conf.example -> dynDNS.conf
-2. Update variables in dynDNS.conf with your desired DNS record and cloud project & zone parameters
+1. Rename conf.example -> conf
+2. Update variables in conf with your desired DNS record and cloud project & zone parameters
 3. Update crontab -e with 
 0,15,30,60 * * * * /install/path/dynDNS.sh
