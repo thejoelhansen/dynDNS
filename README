@@ -1,3 +1,9 @@
+Simple script to keep DNS up to date as cloud IPs change. 
+
+I was tired of paying for static IPs, so I install this script on all my VMs and my DNS stays up to date.
+
+# Installation instructions
+
 1. Rename conf.example -> conf
 2. Update variables in conf with your desired DNS record and cloud project & zone parameters
 3. Update crontab -e with 
