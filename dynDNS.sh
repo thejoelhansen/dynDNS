@@ -7,76 +7,83 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CONF_FILE="$SCRIPT_DIR/conf"
 . "$CONF_FILE"
 
-# Local logging for debugging
-LOG_FILE="$SCRIPT_DIR"/log
-
 DATE_NOW="$(date)"
 IP_URL="https://ifconfig.me"
 
 # Get current public IP
 CURRENT_IP="$(curl -s "$IP_URL")"
 
-# Determine how many DNS# entries exist in conf
-MAX_DNS_COUNT="$(grep -E '^DNS_[0-9]+' "$CONF_FILE" | wc -l)"
+# Build arrays from numbered conf variables
+DNS_ARRAY=()
+PROVIDER_ARRAY=()
+GC_PROJECT_ARRAY=()
+GC_ZONE_ARRAY=()
+AWS_ZONE_ARRAY=()
 
-# Add newline separator in log
-echo -e "\n$DATE_NOW" >> "$LOG_FILE"
-
-# Iterate through DNS_1, DNS_2, ...
-for ((COUNT=1; COUNT<=MAX_DNS_COUNT; COUNT++)); do
-
+COUNT=1
+while true; do
     DNS_VAR="DNS_$COUNT"
     PROVIDER_VAR="CLOUD_PROVIDER_$COUNT"
+    PROJECT_VAR="PROJECT_$COUNT"
+    ZONE_VAR="ZONE_$COUNT"
 
     HOST="${!DNS_VAR:-}"
     PROVIDER="${!PROVIDER_VAR:-}"
+    GC_PROJECT="${!PROJECT_VAR:-}"
+    GC_ZONE="${!ZONE_VAR:-}"
+    AWS_ZONE="${!ZONE_VAR:-}"
 
-    # Skip if not defined
-    if [[ -z "$HOST" || -z "$PROVIDER" ]]; then
-        continue
-    fi
+    # Stop if no more DNS entries
+    [[ -z "$HOST" ]] && break
+
+    DNS_ARRAY+=("$HOST")
+    PROVIDER_ARRAY+=("$PROVIDER")
+    GC_PROJECT_ARRAY+=("$GC_PROJECT")
+    GC_ZONE_ARRAY+=("$GC_ZONE")
+    AWS_ZONE_ARRAY+=("$AWS_ZONE")
+
+    ((COUNT++))
+done
+
+# Timestamp
+echo "$DATE_NOW"
+
+# Iterate through arrays
+for i in "${!DNS_ARRAY[@]}"; do
+    HOST="${DNS_ARRAY[i]}"
+    PROVIDER="${PROVIDER_ARRAY[i]}"
+    GC_PROJECT="${GC_PROJECT_ARRAY[i]}"
+    GC_ZONE="${GC_ZONE_ARRAY[i]}"
+    HOSTED_ZONE_ID="${AWS_ZONE_ARRAY[i]}"
 
     # Get current DNS A record
     CURRENT_DNS="$(dig +short "$HOST" A | head -n1)"
 
     echo "Host = $HOST"
-    echo "Host = $HOST @ $CURRENT_IP" >> "$LOG_FILE"
+    echo "Host = $HOST @ $CURRENT_IP"
 
     if [[ "$CURRENT_IP" == "$CURRENT_DNS" ]]; then
-        echo "IP matches DNS. No update needed." >> "$LOG_FILE"
+        echo "Silence is golden." 
         continue
     fi
 
-    echo "IP mismatch (DNS: $CURRENT_DNS) - updating..." >> "$LOG_FILE"
+    echo "IP mismatch (DNS: $CURRENT_DNS) - updating..."
 
     ### Google Cloud
-    # -------------- 
     if [[ "$PROVIDER" == "gc" ]]; then
-
-        GC_PROJECT_VAR="PROJECT_$COUNT"
-        GC_ZONE_VAR="ZONE_$COUNT"
-
-        GC_PROJECT="${!GC_PROJECT_VAR}"
-        GC_ZONE="${!GC_ZONE_VAR}"
-
         gcloud dns record-sets update "$HOST" \
             --type="A" \
             --zone="$GC_ZONE" \
             --project="$GC_PROJECT" \
             --rrdatas="$CURRENT_IP" \
-            --ttl=60 >> "$LOG_FILE" 2>&1
+            --ttl=60
 
-        echo "Updated via Google Cloud DNS." >> "$LOG_FILE"
+        echo "Updated via Google Cloud DNS."
 
     ### AWS Route 53
-    # -------------- 
     elif [[ "$PROVIDER" == "aws" ]]; then
-
-        AWS_ZONE_VAR="ZONE_$COUNT"
-        HOSTED_ZONE_ID="${!AWS_ZONE_VAR:-}"
-
         if [[ -z "$HOSTED_ZONE_ID" ]]; then
-            echo "Missing hosted zone ID for $HOST. Skipping AWS update." >> "$LOG_FILE"
+            echo "Missing hosted zone ID for $HOST. Skipping AWS update."
             continue
         fi
 
@@ -97,14 +104,13 @@ EOF
 
         aws route53 change-resource-record-sets \
             --hosted-zone-id "$HOSTED_ZONE_ID" \
-            --change-batch "$CHANGE_BATCH" >> "$LOG_FILE" 2>&1
+            --change-batch "$CHANGE_BATCH"
 
-        echo "Updated via AWS Route 53." >> "$LOG_FILE"
+        echo "Updated via AWS Route 53."
 
     else
-        echo "Unknown provider: $PROVIDER" >> "$LOG_FILE"
+        echo "Unknown provider: $PROVIDER"
     fi
-
 done
 
 exit 0
