@@ -20,6 +20,12 @@ GC_PROJECT_ARRAY=()
 GC_ZONE_ARRAY=()
 AWS_ZONE_ARRAY=()
 
+# Load service account if key exists
+if [[ -n "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]]; then
+    gcloud auth activate-service-account \
+        --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
+fi
+
 COUNT=1
 while true; do
     DNS_VAR="DNS_$COUNT"
