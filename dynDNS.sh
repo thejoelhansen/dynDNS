@@ -1,92 +1,109 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
+# Get present directory 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # Import config
-. /home/joel/projects/dynDNS/conf
+CONF_FILE="$SCRIPT_DIR/conf"
+. "$CONF_FILE"
 
-date=$(date)
+# Local logging for debugging
+LOG_FILE="$SCRIPT_DIR"/log
 
-# !todo Check for missing /log, create if empty
-log=$installPath"/log"
+DATE_NOW="$(date)"
+IP_URL="https://ifconfig.me"
 
-ipUrl=https://ifconfig.me
+# Get current public IP
+CURRENT_IP="$(curl -s "$IP_URL")"
 
-# Get current IP and DNS, log them
+# Determine how many DNS# entries exist in conf
+MAX_DNS_COUNT="$(grep -E '^DNS_[0-9]+' "$CONF_FILE" | wc -l)"
 
-currentIp=$(curl $ipUrl -s)
-currentDns=$(dig +short "$DNS" A)
+# Add newline separator in log
+echo -e "\n$DATE_NOW" >> "$LOG_FILE"
 
-# empty line break to log
-echo -en '\n' >> "$log"
+# Iterate through DNS_1, DNS_2, ...
+for ((COUNT=1; COUNT<=MAX_DNS_COUNT; COUNT++)); do
 
-#scratch
+    DNS_VAR="DNS_$COUNT"
+    PROVIDER_VAR="CLOUD_PROVIDER_$COUNT"
 
-# while [ -z $dnsLoopIteration ]; do 
+    HOST="${!DNS_VAR:-}"
+    PROVIDER="${!PROVIDER_VAR:-}"
 
-#	dnsCount=1
-#	dnsLoopIteration=dns"$dnsCount"
-#	echo ${!dnsLoopIteration}
+    # Skip if not defined
+    if [[ -z "$HOST" || -z "$PROVIDER" ]]; then
+        continue
+    fi
 
-# dnsCount=$((dnsCount+1))
+    # Get current DNS A record
+    CURRENT_DNS="$(dig +short "$HOST" A | head -n1)"
 
-#	echo $dnsLoopIteration
-#	echo ${!dnsLoopIteration}
-#	echo ${dnsLoopIteration:3:1}
+    echo "Host = $HOST"
+    echo "Host = $HOST @ $CURRENT_IP" >> "$LOG_FILE"
 
+    if [[ "$CURRENT_IP" == "$CURRENT_DNS" ]]; then
+        echo "IP matches DNS. No update needed." >> "$LOG_FILE"
+        continue
+    fi
 
+    echo "IP mismatch (DNS: $CURRENT_DNS) - updating..." >> "$LOG_FILE"
 
-# done
-# exit 0
+    ### Google Cloud
+    # -------------- 
+    if [[ "$PROVIDER" == "gc" ]]; then
 
-# !todo change to pull from last dns# entry in conf
-# something like var=(grep dns conf | tail -n 1); maxDnsCount=${var:3:1} 
-maxDnsCount=2
-maxDnsCount=$((maxDnsCount+1))
+        GC_PROJECT_VAR="PROJECT_$COUNT"
+        GC_ZONE_VAR="ZONE_$COUNT"
 
-# Iterate through each DNS entry from conf, starting with dns1
+        GC_PROJECT="${!GC_PROJECT_VAR}"
+        GC_ZONE="${!GC_ZONE_VAR}"
 
-for (( count=1; count<"$maxDnsCount"; count++ )); do
+        gcloud dns record-sets update "$HOST" \
+            --type="A" \
+            --zone="$GC_ZONE" \
+            --project="$GC_PROJECT" \
+            --rrdatas="$CURRENT_IP" \
+            --ttl=60 >> "$LOG_FILE" 2>&1
 
-# Set loop variables	
-dnsLoop='dns'"$count"
-cloudProviderLoop='cloudProvider'"$count"
+        echo "Updated via Google Cloud DNS." >> "$LOG_FILE"
 
-echo $date >> "$log"
-echo "Host = ${!dnsLoop} @ $currentIp" >> "$log"
+    ### AWS Route 53
+    # -------------- 
+    elif [[ "$PROVIDER" == "aws" ]]; then
 
-# ! I left off here... test loop
+        AWS_ZONE_VAR="ZONE_$COUNT"
+        HOSTED_ZONE_ID="${!AWS_ZONE_VAR:-}"
 
-echo ${!cloudProviderLoop}
-exit 0
-done
-	
-if [ $cloudProviderLoop = gc ]; then
+        if [[ -z "$HOSTED_ZONE_ID" ]]; then
+            echo "Missing hosted zone ID for $HOST. Skipping AWS update." >> "$LOG_FILE"
+            continue
+        fi
 
-	# Set Google Cloud variables		
-	gcProjectLoop='gcProject'"$count"
-	gcZoneLoop='gczone'"$count"
+        CHANGE_BATCH=$(cat <<EOF
+{
+  "Changes": [{
+    "Action": "UPSERT",
+    "ResourceRecordSet": {
+      "Name": "$HOST",
+      "Type": "A",
+      "TTL": 60,
+      "ResourceRecords": [{"Value": "$CURRENT_IP"}]
+    }
+  }]
+}
+EOF
+)
 
-	# Compare current IP and DNS
-	if [ $currentIp == $currentDns ]; then
-		exit 0
-	elif [ $currentIp != $currentDns ]; then
-	
-	# Update log that the DNS is out of sync
-		echo "IP mismatch - updating DNS..." >> $log
+        aws route53 change-resource-record-sets \
+            --hosted-zone-id "$HOSTED_ZONE_ID" \
+            --change-batch "$CHANGE_BATCH" >> "$LOG_FILE" 2>&1
 
-	# Update A record
-		gcloud dns --project=${!gcProjectLoop} record-sets update ${!dnsLoop} --type="A" --zone=${!gcZone} --rrdatas=$currentIp --ttl=60 >> $log
+        echo "Updated via AWS Route 53." >> "$LOG_FILE"
 
-		exit 0
-	fi
-fi
-
-# !todo 
-if [ $cloudProviderLoop = aws ]; then
-
-	echo "Sorry, AWS Route 53 isn't implemented yet"
-	echo "Could not update" ${!dnsLoop}
-	exit 0 
-fi 
+    else
+        echo "Unknown provider: $PROVIDER" >> "$LOG_FILE"
+    fi
 
 done
 

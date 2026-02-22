@@ -1,14 +1,15 @@
 # Install Directory
-installPath=/app/dynDNS
 
-# Desired external DNS for server
-DNS=hostname.domain.party
+INSTALL_PATH=/app/dynDNS
 
-# Use Google Cloud or AWS
-cloudProvider=gc
+# DNS entries
+DNS_1=hostname.domain.party
+CLOUD_PROVIDER_1=gc
+PROJECT_1=precarious-horoughbred-169420
+ZONE_1=domain-party
 
-# Google Cloud
-gcProject=precarious-horoughbred-169420
-gcZone=domain-party
-
-# AWS !todo
+# Example second entry
+# DNS_2=another.domain.party
+# CLOUD_PROVIDER_2=aws
+# PROJECT_2=
+# ZONE_2=
