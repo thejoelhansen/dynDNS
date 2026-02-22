@@ -14,10 +14,7 @@ k3s variant of dynDNS, for use on a local cluster
 ## 1 Create service account
 ```
 # Set project
-GC_PROJECT_ID="PROJECTNAME"
-gcloud config set project "$GC_PROJECT_ID"
-# Verify current project
-gcloud config get-value project
+GC_PROJECT_ID=$(gcloud config get-value project)
 
 # Create dyndns service account
 GC_SA_NAME="dyndns-sa"
@@ -27,12 +24,30 @@ gcloud iam service-accounts create "$GC_SA_NAME" \
 # This should create a service account like: dyndns-sa@project_id.iam.gserviceaccount.com
 GC_SA_EMAIL="$GC_SA_NAME@$GC_PROJECT_ID.iam.gserviceaccount.com"
 
-# Grant DNS Role to Service Account
-gcloud projects add-iam-policy-binding "$GC_PROJECT_ID" \
-  --member="serviceAccount:$GC_SA_EMAIL" \
-  --role="roles/dns.editor"
+# Create custom dyndns role for restricted permissions
+gcloud iam roles create dyndnsRole \
+  --project="$GC_PROJECT_ID" \
+  --title="DynDNS Role" \
+  --description="Minimal permissions for dynamic DNS updates" \
+  --permissions="dns.changes.create,dns.resourceRecordSets.list,dns.resourceRecordSets.update" \
+  --stage="GA"
 
-# You *could* set roles/dns.admin, but *yikes*
+# Bind the custom role to your dyndns service account
+gcloud projects add-iam-policy-binding "$GC_PROJECT_ID" \
+  --member="serviceAccount:dyndns-sa@$GC_PROJECT_ID.iam.gserviceaccount.com" \
+  --role="projects/$GC_PROJECT_ID/roles/dyndnsRole"
+
+# Verify roles of service account
+gcloud projects get-iam-policy "$GC_PROJECT_ID" \
+  --flatten="bindings[].members" \
+  --filter="bindings.members:dyndns-sa@$GC_PROJECT_ID.iam.gserviceaccount.com" \
+  --format="table(bindings.role)"
+
+# Grant admin role to Service Account, but *yikes*
+# gcloud projects add-iam-policy-binding "$GC_PROJECT_ID" \
+#  --member="serviceAccount:$GC_SA_EMAIL" \
+#  --role="roles/dns.editor"
+
 ```
 
 ## 2 Store as secret in the kube
